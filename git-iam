@@ -117,7 +117,7 @@ case $FIRST in
 		fi;
 		;;
 		--commit|-c )
-			#dump_database $DATABASE_NAME $DATABASE_USER $DATABASE_PASSWORD $DATABASE_SERVER $DATABASE_PORT
+			dump_database $DATABASE_NAME $DATABASE_USER $DATABASE_PASSWORD $DATABASE_SERVER $DATABASE_PORT
 			git commit "${*:2}"
 		;;
 		--help|-h )
