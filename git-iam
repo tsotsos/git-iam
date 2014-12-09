@@ -1,0 +1,139 @@
+#!/bin/bash
+#  git-iam
+#  
+#  Copyright 2014 Georgios Tsotsos <tsotsos@gmail.com>
+#  
+#  This program is free software; you can redistribute it and/or modify
+#  it under the terms of the GNU General Public License as published by
+#  the Free Software Foundation; either version 3 of the License, or
+#  (at your option) any later version.
+#  
+#  This program is distributed in the hope that it will be useful,
+#  but WITHOUT ANY WARRANTY; without even the implied warranty of
+#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#  GNU General Public License for more details.
+#  
+#  You should have received a copy of the GNU General Public License
+#  along with this program; if not, write to the Free Software
+#  Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
+#  MA 02110-1301, USA.
+#  
+#  
+
+FIRST="$1"
+FILE='PROJECT'
+SECOND="$2"
+MYSQL=$(which mysql)
+MYSQLDUMP=$(which mysqldump)
+if [ -f $(pwd)"/$FILE" ]; then
+	source $(pwd)"/$FILE" 
+	CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+	if [ -n "$PROJECT_NAME" ]; then
+		DATABASE_NAME="$PROJECT_NAME"_"$CURRENT_BRANCH"
+		NEW_DATABASE="$PROJECT_NAME"_"$NEW_BRANCH"
+	else
+		echo "Create a database for your current branch"
+		exit;
+	fi;
+	if [ -z "$DATABASE_PASSWORD" ]; then
+		echo "Fill your PROJECT file correctly, DATABASE_PASSWORD isn't readable"
+		exit;
+	fi;
+	if [ -z "$DATABASE_USER" ]; then
+		echo "Fill your PROJECT file correctly, DATABASE_USER isn't readable"
+		exit;
+	fi;
+	if [ -z "$DATABASE_SERVER" ]; then
+		DATABASE_SERVER='localhost'
+	fi;
+	if [ -z "$DATABASE_PORT" ]; then
+		DATABASE_PORT='3306'
+	fi;
+	if [ -z "$MYSQL_ADMIN" ]; then
+		MYSQL_ADMIN='root'
+	fi;
+fi;
+dump_database(){
+	DATABASE_NAME="$1"
+	DATABASE_USER="$2"
+	DATABASE_PASSWORD="$3"
+	DATABASE_SERVER="$4"
+	DATABASE_PORT="$5"
+	echo $DATABASE_PORT
+	if  $MYSQL  -h$DATABASE_SERVER -p$DATABASE_PORT -u$DATABASE_USER -p$DATABASE_PASSWORD -e "use '$DATABASE_NAME'">/dev/null 2>&1; then
+		$MYSQLDUMP --skip-comments --compact --no-create-db --add-drop-table -h$DATABASE_SERVER -p$DATABASE_PORT -u $DATABASE_USER -p$DATABASE_PASSWORD $DATABASE_NAME > $(pwd)"/database.sql"
+	else
+		echo "Exit: i wasn't able to connect with database: $DATABASE_NAME"
+		exit;
+	fi;
+	echo "Be aware! all changes at current branch \"$CURRENT_BRANCH\" will be added and commited to repository"
+	git add $(pwd)"/database.sql"
+}
+update_database(){
+	DATABASE_NAME="$1"
+	DATABASE_USER="$2"
+	DATABASE_PASSWORD="$3"
+	DATABASE_SERVER="$4"
+	DATABASE_PORT="$5"
+	NEW_DATABASE="$6"
+	if ! $MYSQL  -h$DATABASE_SERVER -p$DATABASE_PORT -u$DATABASE_USER -p$DATABASE_PASSWORD -e "use '$NEW_DATABASE'">/dev/null 2>&1; then
+		if [ -z "$MYSQLPASS" ]; then
+			echo "Please enter MySQL root user password!"
+			read -s MYSQLPASS
+		fi;
+		$MYSQL -h$DATABASE_SERVER -p$DATABASE_PORT -u$MYSQL_ADMIN -p$MYSQLPASS -h$DATABASE_SERVER -e "CREATE DATABASE $NEW_DATABASE; GRANT ALL PRIVILEGES ON $NEW_DATABASE.* TO '$DATABASE_USER'@'$DATABASE_SERVER';FLUSH PRIVILEGES;"
+		$MYSQL -h$DATABASE_SERVER -p$DATABASE_PORT -u$MYSQL_ADMIN -p$MYSQLPASS -h$DATABASE_SERVER $NEW_DATABASE < $(pwd)"/database.sql"
+
+	else
+		read -p "The database $NEW_DATABASE exist, do you want to update? (y/n)" yn
+		case $yn in
+		y|Y )
+			$MYSQL -h$DATABASE_SERVER -p$DATABASE_PORT -u$DATABASE_USER -p$DATABASE_PASSWORD -e "SHOW TABLES FROM $NEW_DATABASE" | grep -v "Tables_in_$NEW_DATABASE" | while read a; do
+			$MYSQL -h$DATABASE_SERVER -p$DATABASE_PORT -u$DATABASE_USER -p$DATABASE_PASSWORD -e "DROP TABLE $NEW_DATABASE.$a"
+			done
+			$MYSQL -h$DATABASE_SERVER -p$DATABASE_PORT -u$DATABASE_USER -p$DATABASE_PASSWORD $NEW_DATABASE < $(pwd)"/database.sql"
+		;;
+		n|N )
+		continue;
+		esac
+	fi;
+}
+case $FIRST in
+	--branch|-b )
+		if [ -n "$SECOND" ]; then
+			NEW_BRANCH="$SECOND"
+			NEW_DATABASE="$PROJECT_NAME"_"$NEW_BRANCH"
+			dump_database $DATABASE_NAME $DATABASE_USER $DATABASE_PASSWORD $DATABASE_SERVER $DATABASE_PORT
+			git branch $NEW_BRANCH
+			git checkout $NEW_BRANCH
+			git commit -m "git new database file"
+			echo $NEW_DATABASE
+			echo "Dumping your database is finished"
+			update_database $DATABASE_NAME $DATABASE_USER $DATABASE_PASSWORD $DATABASE_SERVER $DATABASE_PORT $NEW_DATABASE
+			echo "Your new branch \"$NEW_BRANCH\" and database are ready!"
+		else
+			echo "Please write a name for the new branch"
+			echo "The syntax is: git iam {[-nb] or [--new-branch]} [the name]"
+		fi;
+		;;
+		--commit|-c )
+			#dump_database $DATABASE_NAME $DATABASE_USER $DATABASE_PASSWORD $DATABASE_SERVER $DATABASE_PORT
+			git commit "${*:2}"
+		;;
+		--help|-h )
+		cat <<EOF
+This script is under GPL v3
+Copyright (c) 2014, Georgios Tsotsos <tsotsos@gmail.com>
+
+Usage: $0 [options]
+-h|--help	This is output.
+
+-b|--branch	Creates a new branch and commits
+		the database dump, should be followed 
+		by the name of the branch
+
+-c|--commit	Commits the database dump file.
+		It can accept all the arguments of "git commit"
+		if empty a default message is been added
+EOF
+esac
