@@ -63,7 +63,7 @@ dump_database(){
 	DATABASE_PORT="$5"
 	echo $DATABASE_PORT
 	if  $MYSQL  -h$DATABASE_SERVER -p$DATABASE_PORT -u$DATABASE_USER -p$DATABASE_PASSWORD -e "use '$DATABASE_NAME'">/dev/null 2>&1; then
-		$MYSQLDUMP --skip-comments --compact --no-create-db --add-drop-table -h$DATABASE_SERVER -p$DATABASE_PORT -u $DATABASE_USER -p$DATABASE_PASSWORD $DATABASE_NAME > $(pwd)"/database.sql"
+		$MYSQLDUMP --no-create-db --add-drop-table -h$DATABASE_SERVER -p$DATABASE_PORT -u $DATABASE_USER -p$DATABASE_PASSWORD $DATABASE_NAME > $(pwd)"/database.sql"
 	else
 		echo "Exit: i wasn't able to connect with database: $DATABASE_NAME"
 		exit;
