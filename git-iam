@@ -52,6 +52,8 @@ if [ -f $(pwd)"/$FILE" ]; then
 	if [ -z "$MYSQL_ADMIN" ]; then
 		MYSQL_ADMIN='root'
 	fi;
+else
+	echo "There is not PROJECT file, please create a file - see README.MD"
 fi;
 dump_database(){
 	DATABASE_NAME="$1"
@@ -99,7 +101,7 @@ update_database(){
 	fi;
 }
 case $FIRST in
-	--branch|-b )
+		branch|-b )
 		if [ -n "$SECOND" ]; then
 			NEW_BRANCH="$SECOND"
 			NEW_DATABASE="$PROJECT_NAME"_"$NEW_BRANCH"
@@ -116,24 +118,22 @@ case $FIRST in
 			echo "The syntax is: git iam {[-nb] or [--new-branch]} [the name]"
 		fi;
 		;;
-		--commit|-c )
+		commit|-c )
 			dump_database $DATABASE_NAME $DATABASE_USER $DATABASE_PASSWORD $DATABASE_SERVER $DATABASE_PORT
 			git commit "${*:2}"
 		;;
-		--help|-h )
+		help|-h|* )
 		cat <<EOF
 This script is under GPL v3
 Copyright (c) 2014, Georgios Tsotsos <tsotsos@gmail.com>
 
-Usage: $0 [options]
--h|--help	This is output.
+Usage: $0 [-h or help] [-b or branch] [-c or commit ]
 
--b|--branch	Creates a new branch and commits
-		the database dump, should be followed 
-		by the name of the branch
-
--c|--commit	Commits the database dump file.
+-h|help		This is output.
+		
+-b|branch	Creates a new branch and commits the database dump.
+		
+-c|commit	Commits the database dump file.
 		It can accept all the arguments of "git commit"
-		if empty a default message is been added
 EOF
 esac
