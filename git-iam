@@ -49,57 +49,80 @@ if [ -f $(pwd)"/$FILE" ]; then
 	if [ -z "$DATABASE_PORT" ]; then
 		DATABASE_PORT='3306'
 	fi;
-	if [ -z "$MYSQL_ADMIN" ]; then
-		MYSQL_ADMIN='root'
+	if [ -z "$DATABASE_ADMIN" ]; then
+		DATABASE_ADMIN='root'
 	fi;
 else
 	echo "There is not PROJECT file, please create a file - see README.MD"
 fi;
-dump_database(){
-	DATABASE_NAME="$1"
-	DATABASE_USER="$2"
-	DATABASE_PASSWORD="$3"
-	DATABASE_SERVER="$4"
-	DATABASE_PORT="$5"
-	echo $DATABASE_PORT
-	if  $MYSQL  -h$DATABASE_SERVER -p$DATABASE_PORT -u$DATABASE_USER -p$DATABASE_PASSWORD -e "use '$DATABASE_NAME'">/dev/null 2>&1; then
-		$MYSQLDUMP --no-create-db --add-drop-table -h$DATABASE_SERVER -p$DATABASE_PORT -u $DATABASE_USER -p$DATABASE_PASSWORD $DATABASE_NAME > $(pwd)"/database.sql"
+# Checking if exists a Mysql database
+check_database(){
+	if $MYSQL  -h"$1" -P"$2" -u"$3" -p"$4" -e "use '$5'">/dev/null 2>&1; then
+		return 1
 	else
-		echo "Exit: i wasn't able to connect with database: $DATABASE_NAME"
-		exit;
+		return 0
 	fi;
-	echo "Be aware! all changes at current branch \"$CURRENT_BRANCH\" will be added and commited to repository"
-	git add $(pwd)"/database.sql"
+}
+# Creates a Mysql user for project
+create_user(){
+	while read User; do
+		if [[ "$username" == "$1" ]]; then
+			echo "$User exists in MySQL"
+			break
+		fi
+	done <$(mysql -B -N -e 'use mysql; SELECT `user` FROM `user`;')
+	if [[ "$username" != "$1" ]]; then
+		if $MYSQL  -h"$2" -P"$3" -u"$4" -p"$5" -e "CREATE USER '$1'@'$2' IDENTIFIED BY '$7';">/dev/null 2>&1; then
+			echo "user $1 ... created"
+		else
+			echo "Couldn't create user $1"
+			exit
+		fi;
+	fi;
+}
+# Assign user privileges for Mysql database
+assign_privileges(){
+	if $MYSQL  -h"$1" -P"$2" -u"$3" -p"$4" -e "GRANT ALL PRIVILEGES ON $5.* TO '$6'@'$1';FLUSH PRIVILEGES;">/dev/null 2>&1; then
+		echo "Privileges for user $6 to database $5 ... ok"
+	else
+		echo "Couldn't assing privileges for user $6"
+		exit
+	fi;
+}
+# Creates a Mysql database for project
+create_database(){
+	if $MYSQL  -h"$1" -P"$2" -u"$3" -p"$4" -e "create database '$5';">/dev/null 2>&1; then
+		echo "Database $5 ... created"
+	else
+		echo "Couldn't create database $5"
+		exit
+	fi;
 }
 update_database(){
-	DATABASE_NAME="$1"
-	DATABASE_USER="$2"
-	DATABASE_PASSWORD="$3"
-	DATABASE_SERVER="$4"
-	DATABASE_PORT="$5"
-	NEW_DATABASE="$6"
-	if ! $MYSQL  -h$DATABASE_SERVER -p$DATABASE_PORT -u$DATABASE_USER -p$DATABASE_PASSWORD -e "use '$NEW_DATABASE'">/dev/null 2>&1; then
-		if [ -z "$MYSQLPASS" ]; then
-			echo "Please enter MySQL root user password!"
-			read -s MYSQLPASS
-		fi;
-		$MYSQL -h$DATABASE_SERVER -p$DATABASE_PORT -u$MYSQL_ADMIN -p$MYSQLPASS -h$DATABASE_SERVER -e "CREATE DATABASE $NEW_DATABASE; GRANT ALL PRIVILEGES ON $NEW_DATABASE.* TO '$DATABASE_USER'@'$DATABASE_SERVER';FLUSH PRIVILEGES;"
-		$MYSQL -h$DATABASE_SERVER -p$DATABASE_PORT -u$MYSQL_ADMIN -p$MYSQLPASS -h$DATABASE_SERVER $NEW_DATABASE < $(pwd)"/database.sql"
 
+	check_database $1 $2 $3 $4 $5
+}
+# Drop a Mysql database
+drop_database(){
+	if $MYSQL  -h"$1" -P"$2" -u"$3" -p"$4" -e "drop database '$5';">/dev/null 2>&1; then
+		echo "Database $5 ... created"
 	else
-		read -p "The database $NEW_DATABASE exist, do you want to update? (y/n)" yn
-		case $yn in
-		y|Y )
-			$MYSQL -h$DATABASE_SERVER -p$DATABASE_PORT -u$DATABASE_USER -p$DATABASE_PASSWORD -e "SHOW TABLES FROM $NEW_DATABASE" | grep -v "Tables_in_$NEW_DATABASE" | while read a; do
-			$MYSQL -h$DATABASE_SERVER -p$DATABASE_PORT -u$DATABASE_USER -p$DATABASE_PASSWORD -e "DROP TABLE $NEW_DATABASE.$a"
-			done
-			$MYSQL -h$DATABASE_SERVER -p$DATABASE_PORT -u$DATABASE_USER -p$DATABASE_PASSWORD $NEW_DATABASE < $(pwd)"/database.sql"
-		;;
-		n|N )
-		continue;
-		esac
+		echo "Couldn't create database $5"
+		exit
 	fi;
 }
+# Drop tables of a Mysql database 
+drop_tables(){
+	$MYSQL -h"$1" -P"$2" -u"$3" -p"$4" -e "SHOW TABLES FROM $5" | grep -v "Tables_in_$5" | while read a; do
+	$MYSQL -h"$1" -P"$1" -u"$1" -p"$1" -e "DROP TABLE $5.$a"
+	done
+}
+
+# MYSQLDUM
+dump_database(){
+	$MYSQLDUMP --no-create-db --add-drop-table -h"$1" -P"$2" -u"$3" -p"$4" "$5" > $(pwd)"/$5.sql"
+}
+
 case $FIRST in
 		branch|-b )
 		if [ -n "$SECOND" ]; then
@@ -118,14 +141,34 @@ case $FIRST in
 			echo "The syntax is: git iam {[-nb] or [--new-branch]} [the name]"
 		fi;
 		;;
-		commit|-c )
+		add-db|-a )
+			dump_database $DATABASE_NAME $DATABASE_USER $DATABASE_PASSWORD $DATABASE_SERVER $DATABASE_PORT
+			git add database.sql
+		;;
+		commit-db|-c )
 			dump_database $DATABASE_NAME $DATABASE_USER $DATABASE_PASSWORD $DATABASE_SERVER $DATABASE_PORT
 			git commit "${*:2}"
 		;;
 		pull|-p )
-			git pull --all
-			update_database $DATABASE_NAME $DATABASE_USER $DATABASE_PASSWORD $DATABASE_SERVER $DATABASE_PORT $NEW_DATABASE
+		current=$(git rev-parse --abbrev-ref HEAD)
+			for branch in $(git branch | cut -c 3-); do
+				git checkout "$branch" >/dev/null 2>&1
+				if [ -f $(pwd)"/$PROJECT_NAME"_"$branch.sql" ]; then
+					echo ok!
+				else
+					echo not ok
+				fi;
+			done
+			echo "--------------"
+			git checkout $current
+			#git pull --all
+			#update_database $DATABASE_NAME $DATABASE_USER $DATABASE_PASSWORD $DATABASE_SERVER $DATABASE_PORT $NEW_DATABASE
 		;;
+		ela| -a)
+		echo $DATABASE_NAME
+			update_database $DATABASE_SERVER $DATABASE_PORT $DATABASE_USER $DATABASE_PASSWORD $DATABASE_NAME
+			echo "$?"
+			;;
 		help|-h|* )
 		cat <<EOF
 This script is under GPL v3
