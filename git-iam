@@ -19,7 +19,6 @@
 #  MA 02110-1301, USA.
 #  
 #  
-
 FIRST="$1"
 FILE='PROJECT'
 SECOND="$2"
@@ -53,29 +52,29 @@ if [ -f $(pwd)"/$FILE" ]; then
 		DATABASE_ADMIN='root'
 	fi;
 else
-	echo "There is not PROJECT file, please create a file - see README.MD"
+	echo "There is not PROJECT file, please create a new project by runing : git iam new-project"
 fi;
 # Checking if exists a Mysql database
 check_database(){
-	if $MYSQL  -h"$1" -P"$2" -u"$3" -p"$4" -e "use '$5'">/dev/null 2>&1; then
+	if $MYSQL -h"$1" -P"$2" -u"$3" -p"$4" -e "use '$5'">/dev/null 2>&1; then
 		return 1
 	else
 		return 0
 	fi;
 }
-# Creates a Mysql user for project
+# Checks for Mysql user for the project and if there is not creates it
 create_user(){
 	while read User; do
-		if [[ "$username" == "$1" ]]; then
-			echo "$User exists in MySQL"
+		if [[ "$username" == "$5" ]]; then
+			echo "User: $5 exists in MySQL"
 			break
 		fi
 	done <$(mysql -B -N -e 'use mysql; SELECT `user` FROM `user`;')
-	if [[ "$username" != "$1" ]]; then
-		if $MYSQL  -h"$2" -P"$3" -u"$4" -p"$5" -e "CREATE USER '$1'@'$2' IDENTIFIED BY '$7';">/dev/null 2>&1; then
-			echo "user $1 ... created"
+	if [[ "$username" != "$5" ]]; then
+		if $MYSQL -h"$1" -P"$2" -u"$3" -p"$4" -e "CREATE USER '$5'@'$2' IDENTIFIED BY '$6';">/dev/null 2>&1; then
+			echo "User $5 ... created"
 		else
-			echo "Couldn't create user $1"
+			echo "Couldn't create user $5"
 			exit
 		fi;
 	fi;
@@ -118,13 +117,39 @@ drop_tables(){
 	done
 }
 
-# MYSQLDUM
+# Mysqldump
 dump_database(){
-	$MYSQLDUMP --no-create-db --add-drop-table -h"$1" -P"$2" -u"$3" -p"$4" "$5" > $(pwd)"/$5.sql"
-}
+	if $MYSQLDUMP --no-create-db --add-drop-table -h"$1" -P"$2" -u"$3" -p"$4" "$5" > $(pwd)"/$5.sql"; then
+		echo "Dump of database $5 ... created"
+	else
+		echo "Couldn't dump database $5"
+		exit
+	fi;
 
+}
+ask_mysqadmin_pass(){
+	read -s "Mysql admin account (root) password:" MYSQL_ADMIN_PASS
+	return MYSQL_ADMIN_PASS
+}
 case $FIRST in
-		branch|-b )
+		new-project|-n )
+			echo "For this you will need admin access to database"
+			read -p "Have you cloned a git iam repository ?" yn
+			case $yn in 
+				Yy]* )
+				ask_mysqadmin_pass
+				#create_user $DATABASE_SERVER $DATABASE_PORT $DATABASE_USER $DATABASE_PASSWORD $DATABASE_NAME
+				;;
+				[Nn]* )
+				echo "init"
+				;;
+			esac
+		;;
+		add-db|-a )
+			dump_database $DATABASE_SERVER $DATABASE_PORT $DATABASE_USER $DATABASE_PASSWORD $DATABASE_NAME
+			git add -v $DATABASE_NAME.sql
+		;;
+		branch-db|-b )
 		if [ -n "$SECOND" ]; then
 			NEW_BRANCH="$SECOND"
 			NEW_DATABASE="$PROJECT_NAME"_"$NEW_BRANCH"
@@ -140,10 +165,6 @@ case $FIRST in
 			echo "Please write a name for the new branch"
 			echo "The syntax is: git iam {[-nb] or [--new-branch]} [the name]"
 		fi;
-		;;
-		add-db|-a )
-			dump_database $DATABASE_NAME $DATABASE_USER $DATABASE_PASSWORD $DATABASE_SERVER $DATABASE_PORT
-			git add database.sql
 		;;
 		commit-db|-c )
 			dump_database $DATABASE_NAME $DATABASE_USER $DATABASE_PASSWORD $DATABASE_SERVER $DATABASE_PORT
@@ -169,7 +190,7 @@ case $FIRST in
 			update_database $DATABASE_SERVER $DATABASE_PORT $DATABASE_USER $DATABASE_PASSWORD $DATABASE_NAME
 			echo "$?"
 			;;
-		help|-h|* )
+		help|-h)
 		cat <<EOF
 This script is under GPL v3
 Copyright (c) 2014, Georgios Tsotsos <tsotsos@gmail.com>
