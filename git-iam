@@ -127,9 +127,19 @@ dump_database(){
 	fi;
 
 }
-ask_mysqadmin_pass(){
-	read -s "Mysql admin account (root) password:" MYSQL_ADMIN_PASS
-	return MYSQL_ADMIN_PASS
+# Creates database for each branch
+create_db_foreach_branch(){
+	current=$(git rev-parse --abbrev-ref HEAD)
+	for branch in $(git branch | cut -c 3-); do
+		git checkout "$branch" >/dev/null 2>&1
+		if [ -f $(pwd)"/$6"_"$branch.sql" ]; then
+			create_database $1 $2 $3 $4 $5
+		else
+			echo "There is not file $6_$branch.sql to create database"
+		fi;
+	done
+	echo "--------------"
+	git checkout $current
 }
 case $FIRST in
 		new-project|-n )
@@ -137,8 +147,9 @@ case $FIRST in
 			read -p "Have you cloned a git iam repository ?" yn
 			case $yn in 
 				Yy]* )
-				ask_mysqadmin_pass
-				#create_user $DATABASE_SERVER $DATABASE_PORT $DATABASE_USER $DATABASE_PASSWORD $DATABASE_NAME
+				read -s "Mysql admin account (root) password:" MYSQL_ADMIN_PASS
+				create_user $DATABASE_SERVER $DATABASE_PORT $DATABASE_ADMIN $MYSQL_ADMIN_PASS $PROJECT_NAME $DATABASE_USER $DATABASE_PASSWORD
+				
 				;;
 				[Nn]* )
 				echo "init"
