@@ -64,37 +64,26 @@ check_database(){
 }
 # Checks for Mysql user for the project and if there is not creates it
 create_user(){
-	while read User; do
-		if [[ "$username" == "$5" ]]; then
-			echo "User: $5 exists in MySQL"
-			break
-		fi
-	done <$(mysql -B -N -e 'use mysql; SELECT `user` FROM `user`;')
-	if [[ "$username" != "$5" ]]; then
-		if $MYSQL -h"$1" -P"$2" -u"$3" -p"$4" -e "CREATE USER '$5'@'$2' IDENTIFIED BY '$6';">/dev/null 2>&1; then
+		if $MYSQL -h"$1" -P"$2" -u"$3" -p"$4" -e "CREATE USER '$5'@'$1' IDENTIFIED BY '$6';">/dev/null 2>&1; then
 			echo "User $5 ... created"
 		else
 			echo "Couldn't create user $5"
-			exit
 		fi;
-	fi;
 }
 # Assign user privileges for Mysql database
 assign_privileges(){
-	if $MYSQL  -h"$1" -P"$2" -u"$3" -p"$4" -e "GRANT ALL PRIVILEGES ON $5.* TO '$6'@'$1';FLUSH PRIVILEGES;">/dev/null 2>&1; then
+	if $MYSQL  -h"$1" -P"$2" -u"$3" -p"$4" -e "GRANT ALL PRIVILEGES ON $5.* TO '$6'@'$1';FLUSH PRIVILEGES;"; then
 		echo "Privileges for user $6 to database $5 ... ok"
 	else
 		echo "Couldn't assing privileges for user $6"
-		exit
 	fi;
 }
 # Creates a Mysql database for project
 create_database(){
-	if $MYSQL  -h"$1" -P"$2" -u"$3" -p"$4" -e "create database '$5';">/dev/null 2>&1; then
+	if $MYSQL  -h"$1" -P"$2" -u"$3" -p"$4" -e "CREATE DATABASE $5;">/dev/null 2>&1; then
 		echo "Database $5 ... created"
 	else
 		echo "Couldn't create database $5"
-		exit
 	fi;
 }
 update_database(){
@@ -103,7 +92,7 @@ update_database(){
 }
 # Drop a Mysql database
 drop_database(){
-	if $MYSQL  -h"$1" -P"$2" -u"$3" -p"$4" -e "drop database '$5';">/dev/null 2>&1; then
+	if $MYSQL  -h"$1" -P"$2" -u"$3" -p"$4" -e "DROP DATABASE '$5';">/dev/null 2>&1; then
 		echo "Database $5 ... created"
 	else
 		echo "Couldn't create database $5"
@@ -119,46 +108,52 @@ drop_tables(){
 
 # Mysqldump
 dump_database(){
-	if $MYSQLDUMP --no-create-db --add-drop-table -h"$1" -P"$2" -u"$3" -p"$4" "$5" > $(pwd)"/$5.sql"; then
-		echo "Dump of database $5 ... created"
+	if $MYSQLDUMP --no-data --tables -h"$1" -P"$2" -u"$3" -p"$4" "$5" > $(pwd)"/$5_schema.sql"; then
+		echo "Dump of database schema $5 ... created"
 	else
-		echo "Couldn't dump database $5"
+		echo "Couldn't dump the schema of database $5"
+		exit
+	fi;
+	if $MYSQLDUMP --skip-extended-insert --no-create-info --ignore-table=$5.watchdog --ignore-table=$5.cache% --ignore-table=$5.sessions --ignore-table=$5.search%  -h"$1" -P"$2" -u"$3" -p"$4" "$5" > $(pwd)"/$5_content.sql"; then
+		echo "Dump of database content $5 ... created"
+	else
+		echo "Couldn't dump the content of database $5"
 		exit
 	fi;
 
 }
-# Creates database for each branch
+# Creates database and assign privileges for each branch
 create_db_foreach_branch(){
 	current=$(git rev-parse --abbrev-ref HEAD)
 	for branch in $(git branch | cut -c 3-); do
 		git checkout "$branch" >/dev/null 2>&1
-		if [ -f $(pwd)"/$6"_"$branch.sql" ]; then
-			create_database $1 $2 $3 $4 $5
+		if [ -f $(pwd)"/$5_$branch.sql" ]; then
+			create_database $1 $2 $3 $4 "$5_$branch"
+			assign_privileges $1 $2 $3 $4 "$5_$branch" $5
 		else
-			echo "There is not file $6_$branch.sql to create database"
+			echo "There is not file $5_$branch.sql to create database"
 		fi;
 	done
-	echo "--------------"
 	git checkout $current
 }
 case $FIRST in
 		new-project|-n )
 			echo "For this you will need admin access to database"
-			read -p "Have you cloned a git iam repository ?" yn
+			read -p "Have you cloned a git iam repository (y/n) ?" yn
 			case $yn in 
-				Yy]* )
-				read -s "Mysql admin account (root) password:" MYSQL_ADMIN_PASS
+				Y|y)
+				read -p "Mysql admin account (root) password:" MYSQL_ADMIN_PASS
 				create_user $DATABASE_SERVER $DATABASE_PORT $DATABASE_ADMIN $MYSQL_ADMIN_PASS $PROJECT_NAME $DATABASE_USER $DATABASE_PASSWORD
-				
+				create_db_foreach_branch $DATABASE_SERVER $DATABASE_PORT $DATABASE_ADMIN $MYSQL_ADMIN_PASS $PROJECT_NAME
 				;;
-				[Nn]* )
+				N|n)
 				echo "init"
 				;;
 			esac
 		;;
 		add-db|-a )
 			dump_database $DATABASE_SERVER $DATABASE_PORT $DATABASE_USER $DATABASE_PASSWORD $DATABASE_NAME
-			git add -v $DATABASE_NAME.sql
+			#git add -v $DATABASE_NAME.sql
 		;;
 		branch-db|-b )
 		if [ -n "$SECOND" ]; then
