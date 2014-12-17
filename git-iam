@@ -18,12 +18,15 @@
 #  Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
 #  MA 02110-1301, USA.
 #  
-#  
+# 
 FIRST="$1"
 FILE='PROJECT'
 SECOND="$2"
 MYSQL=$(which mysql)
 MYSQLDUMP=$(which mysqldump)
+CAT=$(which cat)
+WGET=$(which wget)
+TAR=$(which tar)
 if [ -f $(pwd)"/$FILE" ]; then
 	source $(pwd)"/$FILE" 
 	CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
@@ -93,32 +96,36 @@ update_database(){
 # Drop a Mysql database
 drop_database(){
 	if $MYSQL  -h"$1" -P"$2" -u"$3" -p"$4" -e "DROP DATABASE '$5';">/dev/null 2>&1; then
-		echo "Database $5 ... created"
+		echo "Database $5 ... droped"
 	else
-		echo "Couldn't create database $5"
-		exit
+		echo "Couldn't drop database $5"
 	fi;
 }
 # Drop tables of a Mysql database 
 drop_tables(){
 	$MYSQL -h"$1" -P"$2" -u"$3" -p"$4" -e "SHOW TABLES FROM $5" | grep -v "Tables_in_$5" | while read a; do
-	$MYSQL -h"$1" -P"$1" -u"$1" -p"$1" -e "DROP TABLE $5.$a"
+	$MYSQL -h"$1" -P"$2" -u"$3" -p"$4" -e "DROP TABLE $5.$a"
 	done
 }
-
+import_database(){
+	if $MYSQL -h"$1" -P"$2" -u"$3" -p"$4" "$5" < "$6"; then
+		echo "Importing tables to $5 ... done"
+	else
+		echo "Couldn't import $6 to $5"
+	fi;
+}
 # Mysqldump
 dump_database(){
-	if $MYSQLDUMP --no-data --tables -h"$1" -P"$2" -u"$3" -p"$4" "$5" > $(pwd)"/$5_schema.sql"; then
+
+	if $MYSQLDUMP --no-data --tables -h"$1" -P"$2" -u"$3" -p"$4" "$5" > $(pwd)"/databases/$5_schema.sql"; then
 		echo "Dump of database schema $5 ... created"
 	else
 		echo "Couldn't dump the schema of database $5"
-		exit
 	fi;
-	if $MYSQLDUMP --skip-extended-insert --no-create-info --ignore-table=$5.watchdog --ignore-table=$5.cache% --ignore-table=$5.sessions --ignore-table=$5.search%  -h"$1" -P"$2" -u"$3" -p"$4" "$5" > $(pwd)"/$5_content.sql"; then
+	if $MYSQLDUMP --skip-extended-insert --no-create-info --ignore-table=$5.watchdog --ignore-table=$5.sessions --ignore-table=$5.search% -h"$1" -P"$2" -u"$3" -p"$4" "$5" $($MYSQL -h$1 -P$2 -u$3 -p$4 $5 -Bse "SHOW TABLES WHERE Tables_in_$5 NOT LIKE 'cache%'") > $(pwd)"/databases/$5_content.sql"; then
 		echo "Dump of database content $5 ... created"
 	else
 		echo "Couldn't dump the content of database $5"
-		exit
 	fi;
 
 }
@@ -127,39 +134,120 @@ create_db_foreach_branch(){
 	current=$(git rev-parse --abbrev-ref HEAD)
 	for branch in $(git branch | cut -c 3-); do
 		git checkout "$branch" >/dev/null 2>&1
-		if [ -f $(pwd)"/$5_$branch.sql" ]; then
+		official_schema=$(pwd)"/database/$5_${branch}_schema.official.sql"
+		schema=$(pwd)"/database/$5_${branch}_schema.sql"
+		official_content=$(pwd)"/database/$5_${branch}_content.official.sql"
+		content=$(pwd)"/database/$5_${branch}_content.sql"
+		#schema
+		if [ -f $official_schema ]; then
 			create_database $1 $2 $3 $4 "$5_$branch"
 			assign_privileges $1 $2 $3 $4 "$5_$branch" $5
+			import_database $1 $2 $3 $4 "$5_$branch" $official_schema
+		elif [ -f $schema ]; then
+			read -p "There is not official database schema, do you want to import experimental ? - its not safe! (y/n)" yn
+			case $yn in 
+				y|Y )
+				create_database $1 $2 $3 $4 "$5_$branch"
+				assign_privileges $1 $2 $3 $4 "$5_$branch" $5
+				import_database $1 $2 $3 $4 "$5_$branch" $schema
+				;;
+				n|N )
+				break
+				;;
+			esac
 		else
-			echo "There is not file $5_$branch.sql to create database"
-		fi;
+			echo "Couldn't find a proper sql file to import"
+		fi
+		#content
+		if [ -f $official_content ]; then
+			import_database $1 $2 $3 $4 "$5_$branch" $official_content
+		elif [ -f $(pwd)"/$5_${branch}_content.sql" ]; then
+			read -p "There is not official database content, do you want to import experimental ? - its not safe! (y/n)" yn
+			case $yn in 
+				y|Y )
+				import_database $1 $2 $3 $4 "$5_$branch" $content
+				;;
+				n|N )
+				continue
+				;;
+			esac
+		else
+			echo "Couldn't find a proper sql file to import"
+		fi
 	done
 	git checkout $current
 }
 case $FIRST in
-		new-project|-n )
+		import-project|-im )
 			echo "For this you will need admin access to database"
-			read -p "Have you cloned a git iam repository (y/n) ?" yn
-			case $yn in 
-				Y|y)
-				read -p "Mysql admin account (root) password:" MYSQL_ADMIN_PASS
-				create_user $DATABASE_SERVER $DATABASE_PORT $DATABASE_ADMIN $MYSQL_ADMIN_PASS $PROJECT_NAME $DATABASE_USER $DATABASE_PASSWORD
-				create_db_foreach_branch $DATABASE_SERVER $DATABASE_PORT $DATABASE_ADMIN $MYSQL_ADMIN_PASS $PROJECT_NAME
-				;;
-				N|n)
-				echo "init"
-				;;
-			esac
+			echo "Mysql admin account (root) password:" 
+			read -s MYSQL_ADMIN_PASS
+			create_user $DATABASE_SERVER $DATABASE_PORT $DATABASE_ADMIN $MYSQL_ADMIN_PASS $DATABASE_USER $DATABASE_PASSWORD
+			create_db_foreach_branch $DATABASE_SERVER $DATABASE_PORT $DATABASE_ADMIN $MYSQL_ADMIN_PASS $PROJECT_NAME
+			;;
+		new-project|-np )
+			echo "Let's create your project.."
+			git checkout -b development
+			if [ -n $(pwd)"/PROJECT" ]; then
+			read -e -p "Maintainer:" maintainer
+			read -e -p "Starting Ver.:" -i "0.0.1" version
+			echo "Be careful dont use Caps!"
+			project_name=
+			while [[ $project_name = "" ]]; do
+				read -p "Project name:" project_name
+			done
+			read -e -p "Database host:" -i "localhost" database_host
+			read -e -p "Database port:" -i "3306" database_port
+			read -e -p "Database admin:" -i "root" database_admin
+			read -e -p "Database user:" -i "$project_name" database_user
+			read -e -p "Database pass:" database_password
+			$CAT > $(pwd)/PROJECT <<EOL
+MAINTAINER="$maintainer"
+VERSION="$version"
+PROJECT_NAME="$project_name"
+DATABASE_SERVER="$database_host"
+DATABASE_PORT="$database_port"
+DATABASE_ADMIN="$database_admin"
+DATABASE_USER="$database_user"
+DATABASE_PASSWORD="$database_password"
+EOL
+			fi;
+			echo "Mysql admin account (root) password:" 
+			read -s mysql_admin_pass
+			create_database $database_host $database_port $database_admin $mysql_admin_pass "${project_name}_development"
+			create_user $database_host $database_port $database_admin $mysql_admin_pass $database_user $database_password
+			assign_privileges $database_host $database_port $database_admin $mysql_admin_pass "${project_name}_development" $database_user
+			echo "Setting up drupal..."
+			mkdir $(pwd)"/public_html"
+			mkdir $(pwd)"/databases"
+			read -p "Drupal Version:" drupal_version
+			if $WGET http://ftp.drupal.org/files/projects/drupal-$drupal_version.tar.gz >/dev/null 2>&1; then
+			echo "Drupal $drupal_version donwloaded"
+			else
+			echo "Couldn't download drupal $drupal_version"
+			fi;
+			if $TAR xvzf drupal-$drupal_version.tar.gz --strip-components 1 -C $(pwd)"/public_html" >/dev/null 2>&1; then
+			echo "Drupal uncompressed to"$(pwd)"/public_html"
+			else
+			echo "Couldn't uncompress drupal to"$(pwd)"/public_html"
+			fi;
+			chmod 775 -R $(pwd)"/public_html/sites/default/"
+			mkdir $(pwd)"/public_html/sites/default/files"
+			chmod 775 -R $(pwd)"/public_html/sites/default/files"
+			cp $(pwd)"/public_html/sites/default/default.settings.php" $(pwd)"/public_html/sites/default/settings.php"
+			rm -f drupal-$drupal_version.tar.gz
+			echo "Cool!"
+			echo "Your repository is setting also all folders,files and permissions of drupal, please add/commit to git"
 		;;
 		add-db|-a )
 			dump_database $DATABASE_SERVER $DATABASE_PORT $DATABASE_USER $DATABASE_PASSWORD $DATABASE_NAME
-			#git add -v $DATABASE_NAME.sql
+			git add -v $DATABASE_NAME.sql
 		;;
-		branch-db|-b )
+		new-branch-db|-nb )
 		if [ -n "$SECOND" ]; then
 			NEW_BRANCH="$SECOND"
-			NEW_DATABASE="$PROJECT_NAME"_"$NEW_BRANCH"
-			dump_database $DATABASE_NAME $DATABASE_USER $DATABASE_PASSWORD $DATABASE_SERVER $DATABASE_PORT
+			NEW_DATABASE="${PROJECT_NAME}_${NEW_BRANCH}"
+			dump_database $DATABASE_SERVER $DATABASE_PORT $DATABASE_USER $DATABASE_PASSWORD $DATABASE_NAME
 			git branch $NEW_BRANCH
 			git checkout $NEW_BRANCH
 			git commit -m "git new database file"
@@ -191,10 +279,8 @@ case $FIRST in
 			#git pull --all
 			#update_database $DATABASE_NAME $DATABASE_USER $DATABASE_PASSWORD $DATABASE_SERVER $DATABASE_PORT $NEW_DATABASE
 		;;
-		ela| -a)
-		echo $DATABASE_NAME
-			update_database $DATABASE_SERVER $DATABASE_PORT $DATABASE_USER $DATABASE_PASSWORD $DATABASE_NAME
-			echo "$?"
+		drupal-modules| -dm)
+			$MYSQL -h$DATABASE_SERVER -P$DATABASE_PORT -u$DATABASE_USER -p$DATABASE_PASSWORD -e "select name,status from ${DATABASE_NAME}.system order by name;" > MODULES
 			;;
 		help|-h)
 		cat <<EOF
