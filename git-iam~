@@ -22,7 +22,6 @@
 FIRST="$1"
 FILE='PROJECT'
 SECOND="$2"
-THIRD="$3"
 MYSQL=$(which mysql)
 MYSQLDUMP=$(which mysqldump)
 CAT=$(which cat)
@@ -117,12 +116,13 @@ import_database(){
 }
 # Mysqldump
 dump_database(){
-	if $MYSQLDUMP --no-data --tables -h"$1" -P"$2" -u"$3" -p"$4" "$5" > $(pwd)"/databases/${CURRENT_BRANCH}_schema.$6"; then
+
+	if $MYSQLDUMP --no-data --tables -h"$1" -P"$2" -u"$3" -p"$4" "$5" > $(pwd)"/databases/$5_schema.sql"; then
 		echo "Dump of database schema $5 ... created"
 	else
 		echo "Couldn't dump the schema of database $5"
 	fi;
-	if $MYSQLDUMP --skip-extended-insert --no-create-info --ignore-table=$5.watchdog --ignore-table=$5.sessions --ignore-table=$5.search% -h"$1" -P"$2" -u"$3" -p"$4" "$5" $($MYSQL -h$1 -P$2 -u$3 -p$4 $5 -Bse "SHOW TABLES WHERE Tables_in_$5 NOT LIKE 'cache%'") > $(pwd)"/databases/${CURRENT_BRANCH}_content.$6"; then
+	if $MYSQLDUMP --skip-extended-insert --no-create-info --ignore-table=$5.watchdog --ignore-table=$5.sessions --ignore-table=$5.search% -h"$1" -P"$2" -u"$3" -p"$4" "$5" $($MYSQL -h$1 -P$2 -u$3 -p$4 $5 -Bse "SHOW TABLES WHERE Tables_in_$5 NOT LIKE 'cache%'") > $(pwd)"/databases/$5_content.sql"; then
 		echo "Dump of database content $5 ... created"
 	else
 		echo "Couldn't dump the content of database $5"
@@ -239,26 +239,24 @@ EOL
 			echo "Cool!"
 			echo "Your repository is setting also all folders,files and permissions of drupal, please add/commit to git"
 		;;
-		add-db|-adb )
-			timestamp=$(date +"%s")
-			dump_database $DATABASE_SERVER $DATABASE_PORT $DATABASE_USER $DATABASE_PASSWORD $DATABASE_NAME "${timestamp}.sql"
-			#git add -v $DATABASE_NAME.sql
+		add-db|-a )
+			dump_database $DATABASE_SERVER $DATABASE_PORT $DATABASE_USER $DATABASE_PASSWORD $DATABASE_NAME
+			git add -v $DATABASE_NAME.sql
 		;;
 		new-branch-db|-nb )
 		if [ -n "$SECOND" ]; then
-			timestamp=$(date +"%s")
-			NEW_BRANCH=$(echo $SECOND | awk '{ gsub("-","_",$SECOND); print tolower($SECOND) }')
+			NEW_BRANCH="$SECOND"
 			NEW_DATABASE="${PROJECT_NAME}_${NEW_BRANCH}"
-			dump_database $DATABASE_SERVER $DATABASE_PORT $DATABASE_USER $DATABASE_PASSWORD $DATABASE_NAME "${timestamp}.sql"
+			dump_database $DATABASE_SERVER $DATABASE_PORT $DATABASE_USER $DATABASE_PASSWORD $DATABASE_NAME
+			git branch $NEW_BRANCH
+			git checkout $NEW_BRANCH
+			git commit -m "git new database file"
+			echo $NEW_DATABASE
 			echo "Dumping your database is finished"
-		#	git branch $NEW_BRANCH
-		#	git checkout $NEW_BRANCHE
-		echo "Mysql admin account (root) password:" 
-			read -s MYSQL_ADMIN_PASS
-			create_database $DATABASE_SERVER $DATABASE_PORT $DATABASE_ADMIN $MYSQL_ADMIN_PASS $PROJECT_NAME
-		#	echo "Your new branch \"$NEW_BRANCH\" and database are ready!"
+			update_database $DATABASE_NAME $DATABASE_USER $DATABASE_PASSWORD $DATABASE_SERVER $DATABASE_PORT $NEW_DATABASE
+			echo "Your new branch \"$NEW_BRANCH\" and database are ready!"
 		else
-			echo "Please select a name for the new branch"
+			echo "Please write a name for the new branch"
 			echo "The syntax is: git iam {[-nb] or [--new-branch]} [the name]"
 		fi;
 		;;
