@@ -290,7 +290,20 @@ EOL
 			if [ "$db" -eq 1 ]; then
 				import_sql $DATABASE_SERVER $DATABASE_PORT $DATABASE_USER $DATABASE_PASSWORD $DATABASE_NAME $CURRENT_BRANCH
 			else
-				echo "no"
+				echo "Database $DATABASE_NAME does not exist, please run git iam new-database"
+			fi;
+		;;
+		new-database|-ndb )
+			check_database $DATABASE_SERVER $DATABASE_PORT $DATABASE_USER $DATABASE_PASSWORD $DATABASE_NAME
+			db="$?"
+			if [ "$db" -eq 0 ]; then
+				echo "Mysql admin account (root) password:" 
+				read -s MYSQL_ADMIN_PASS
+				create_user $DATABASE_SERVER $DATABASE_PORT $DATABASE_ADMIN $MYSQL_ADMIN_PASS $DATABASE_USER $DATABASE_PASSWORD
+				create_database $DATABASE_SERVER $DATABASE_PORT $DATABASE_ADMIN $MYSQL_ADMIN_PASS $DATABASE_NAME
+				assign_privileges $DATABASE_SERVER $DATABASE_PORT $DATABASE_ADMIN $MYSQL_ADMIN_PASS $DATABASE_NAME
+			else
+				echo "Database $DATABASE_NAME allready exists."
 			fi;
 		;;
 		drupal-modules| -dm)
@@ -304,14 +317,15 @@ Usage: $0 [-h or help]
 
 -h|help				This is output.
 		
--im|import-project		Imports a whole new project with all branches and databases
+-im|import-project		Imports a whole new project with all branches and databases (requires mysql admin password)
 		
--np|new-project			Creates a new project, downloads drupal etc.
+-np|new-project			Creates a new project, downloads drupal etc. (requires mysql admin password)
 		
 -db|database			Creates a database dump under databases/
 		
 -idb|import-database	Imports a database dump (priority to official dumps)
 		
+-ndb|new-database		Creates a new database for current branch (requires mysql admin password)
 EOF
 		;;
 esac
