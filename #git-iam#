@@ -18,7 +18,8 @@
 #  Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
 #  MA 02110-1301, USA.
 #  
-# 
+#
+
 FIRST="$1"
 FILE='PROJECT'
 SECOND="$2"
@@ -117,12 +118,12 @@ import_database(){
 }
 # Mysqldump
 dump_database(){
-	if $MYSQLDUMP --no-data --tables -h"$1" -P"$2" -u"$3" -p"$4" "$5" > $(pwd)"/databases/${CURRENT_BRANCH}_schema.sql"; then
+	if $MYSQLDUMP --no-data --tables -h"$1" -P"$2" -u"$3" -p"$4" "$5" > $(pwd)"/databases/${CURRENT_BRANCH}_schema.$6"; then
 		echo "Dump of database schema $5 ... created"
 	else
 		echo "Couldn't dump the schema of database $5"
 	fi;
-	if $MYSQLDUMP --skip-extended-insert --no-create-info --ignore-table=$5.watchdog --ignore-table=$5.sessions --ignore-table=$5.search% -h"$1" -P"$2" -u"$3" -p"$4" "$5" $($MYSQL -h$1 -P$2 -u$3 -p$4 $5 -Bse "SHOW TABLES WHERE Tables_in_$5 NOT LIKE 'cache%'") > $(pwd)"/databases/${CURRENT_BRANCH}_content.sql"; then
+	if $MYSQLDUMP --skip-extended-insert --no-create-info --ignore-table=$5.watchdog --ignore-table=$5.sessions --ignore-table=$5.search% -h"$1" -P"$2" -u"$3" -p"$4" "$5" $($MYSQL -h$1 -P$2 -u$3 -p$4 $5 -Bse "SHOW TABLES WHERE Tables_in_$5 NOT LIKE 'cache%'") > $(pwd)"/databases/${CURRENT_BRANCH}_content.$6"; then
 		echo "Dump of database content $5 ... created"
 	else
 		echo "Couldn't dump the content of database $5"
@@ -240,7 +241,8 @@ EOL
 			echo "Your repository is setting also all folders,files and permissions of drupal, please add/commit to git"
 		;;
 		add-db|-adb )
-			dump_database $DATABASE_SERVER $DATABASE_PORT $DATABASE_USER $DATABASE_PASSWORD $DATABASE_NAME
+			timestamp=$(date +"%s")
+			dump_database $DATABASE_SERVER $DATABASE_PORT $DATABASE_USER $DATABASE_PASSWORD $DATABASE_NAME "${timestamp}.sql"
 			#git add -v $DATABASE_NAME.sql
 		;;
 		new-branch-db|-nb )
