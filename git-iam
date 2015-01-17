@@ -117,56 +117,32 @@ import_database(){
 }
 # Mysqldump
 dump_database(){
-	if $MYSQLDUMP --no-data --tables -h"$1" -P"$2" -u"$3" -p"$4" "$5" > $(pwd)"/databases/${CURRENT_BRANCH}_schema.sql"; then
+	if $MYSQLDUMP --no-data --tables -h"$1" -P"$2" -u"$3" -p"$4" "$5" > $(pwd)"/databases/schema.sql"; then
 		echo "Dump of database schema $5 ... created"
 	else
 		echo "Couldn't dump the schema of database $5"
 	fi;
-	if $MYSQLDUMP --skip-extended-insert --no-create-info --ignore-table=$5.watchdog --ignore-table=$5.sessions --ignore-table=$5.search% -h"$1" -P"$2" -u"$3" -p"$4" "$5" $($MYSQL -h$1 -P$2 -u$3 -p$4 $5 -Bse "SHOW TABLES WHERE Tables_in_$5 NOT LIKE 'cache%'") > $(pwd)"/databases/${CURRENT_BRANCH}_content.sql"; then
+	if $MYSQLDUMP --skip-extended-insert --no-create-info --ignore-table=$5.watchdog --ignore-table=$5.sessions --ignore-table=$5.search% --ignore-table=$5.watchdog% -h"$1" -P"$2" -u"$3" -p"$4" "$5" $($MYSQL -h$1 -P$2 -u$3 -p$4 $5 -Bse "SHOW TABLES WHERE Tables_in_$5 NOT LIKE 'cache%'") > $(pwd)"/databases/content.sql"; then
 		echo "Dump of database content $5 ... created"
 	else
 		echo "Couldn't dump the content of database $5"
 	fi;
-
 }
 # import database files
 # import_sql host port user password database branch
 import_sql(){
-	official_schema=$(pwd)"/databases/${6}_schema.official.sql"
-	schema=$(pwd)"/databases/${6}_schema.sql"
-	official_content=$(pwd)"/databases/${6}_content.official.sql"
-	content=$(pwd)"/databases/${6}_content.sql"
+	schema=$(pwd)"/databases/schema.sql"
+	content=$(pwd)"/databases/content.sql"
 	#schema
-	if [ -f $official_schema ]; then
+	if [ -f $schema ]; then
 		drop_tables $1 $2 $3 $4 $5
-		import_database $1 $2 $3 $4 $5 $official_schema
-	elif [ -f $schema ]; then
-		read -p "There is not official database schema, do you want to import experimental ?  (y/n)" yn
-		case $yn in 
-			y|Y )
-				drop_tables $1 $2 $3 $4 $5
-				import_database $1 $2 $3 $4 $5 $schema
-			;;
-			n|N )
-			break
-			;;
-		esac
+		import_database $1 $2 $3 $4 $5 $schema
 	else
 		echo "Couldn't find a proper sql file to import"
 	fi
 	#content
-	if [ -f $official_content ]; then
-		import_database $1 $2 $3 $4 $5 $official_content
-	elif [ -f $content ]; then
-		read -p "There is not official database content, do you want to import experimental ?  (y/n)" yn
-		case $yn in 
-			y|Y )
-				import_database $1 $2 $3 $4 $5 $content
-			;;
-			n|N )
-			break
-			;;
-		esac
+	if [ -f $content ]; then
+		import_database $1 $2 $3 $4 $5 $content
 	else
 		echo "Couldn't find a proper sql file to import"
 	fi
@@ -288,7 +264,7 @@ EOL
 			check_database $DATABASE_SERVER $DATABASE_PORT $DATABASE_USER $DATABASE_PASSWORD $DATABASE_NAME
 			db="$?"
 			if [ "$db" -eq 1 ]; then
-				import_sql $DATABASE_SERVER $DATABASE_PORT $DATABASE_USER $DATABASE_PASSWORD $DATABASE_NAME $CURRENT_BRANCH
+				import_sql $DATABASE_SERVER $DATABASE_PORT $DATABASE_USER $DATABASE_PASSWORD $DATABASE_NAME
 			else
 				echo "Database $DATABASE_NAME does not exist, please run git iam new-database"
 			fi;
