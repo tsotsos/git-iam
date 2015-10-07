@@ -1,3 +1,3 @@
 Git-iam shell script
 ===================
-A simple script for git, to provide help with repositories handling Drupal installations
+A simple script for git that provides help with repositories handling Drupal installations.
