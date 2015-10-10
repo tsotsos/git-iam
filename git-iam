@@ -110,19 +110,22 @@ drop_tables(){
 }
 import_database(){
 	if $MYSQL -h"$1" -P"$2" -u"$3" -p"$4" "$5" < "$6"; then
-		echo "Importing tables to $5 ... done"
+		echo "Importing to $5 ... done"
 	else
 		echo "Couldn't import $6 to $5"
 	fi;
 }
 # Mysqldump
 dump_database(){
-	if $MYSQLDUMP --no-data --tables -h"$1" -P"$2" -u"$3" -p"$4" "$5" > $(pwd)"/databases/schema.sql"; then
+	TABLES=$($MYSQL --skip-column-names -e 'show tables' -h$1 -P$2 -u$3 -p$4 $5 )
+	
+	if $MYSQLDUMP --skip-extended-insert --disable-keys --single-transaction --no-data -h$1 -P$2 -u$3 -p$4 $5 ${TABLES} > $(pwd)"/databases/schema.sql"; then
 		echo "Dump of database schema $5 ... created"
 	else
 		echo "Couldn't dump the schema of database $5"
 	fi;
-	if $MYSQLDUMP --skip-extended-insert --no-create-info --ignore-table=$5.watchdog --ignore-table=$5.sessions --ignore-table=$5.search% --ignore-table=$5.watchdog% -h"$1" -P"$2" -u"$3" -p"$4" "$5" $($MYSQL -h$1 -P$2 -u$3 -p$4 $5 -Bse "SHOW TABLES WHERE Tables_in_$5 NOT LIKE 'cache%'") > $(pwd)"/databases/content.sql"; then
+	TABLES2=$(echo "$TABLES" | grep -Ev "^(accesslog|cache.*|flood|search_.*|semaphore|sessions|watchdog)$")
+	if $MYSQLDUMP --skip-extended-insert --disable-keys --single-transaction --no-create-info -h"$1" -P"$2" -u"$3" -p"$4" "$5" ${TABLES2} > $(pwd)"/databases/content.sql"; then
 		echo "Dump of database content $5 ... created"
 	else
 		echo "Couldn't dump the content of database $5"
@@ -152,43 +155,19 @@ create_db_foreach_branch(){
 	current=$(git rev-parse --abbrev-ref HEAD)
 	for branch in $(git branch | cut -c 3-); do
 		git checkout "$branch" >/dev/null 2>&1
-		official_schema=$(pwd)"/database/${branch}_schema.official.sql"
-		schema=$(pwd)"/database/${branch}_schema.sql"
-		official_content=$(pwd)"/database/${branch}_content.official.sql"
-		content=$(pwd)"/database/${branch}_content.sql"
+		schema=$(pwd)"/databases/schema.sql"
+		content=$(pwd)"/databases/content.sql"
 		#schema
-		if [ -f $official_schema ]; then
-			create_database $1 $2 $3 $4 "$branch"
-			assign_privileges $1 $2 $3 $4 "$branch" $5
-			import_database $1 $2 $3 $4 "$branch" $official_schema
-		elif [ -f $schema ]; then
-			read -p "There is not official database schema, do you want to import experimental ? - its not safe! (y/n)" yn
-			case $yn in 
-				y|Y )
-				create_database $1 $2 $3 $4 "$branch"
-				assign_privileges $1 $2 $3 $4 "$branch" $5
-				import_database $1 $2 $3 $4 "$branch" $schema
-				;;
-				n|N )
-				break
-				;;
-			esac
+		if [ -f $schema ]; then
+			create_database $1 $2 $3 $4 "$PROJECT_NAME"_"$branch"
+			assign_privileges $1 $2 $3 $4 "$PROJECT_NAME"_"$branch" $5
+			import_database $1 $2 $3 $4 "$PROJECT_NAME"_"$branch" $schema
 		else
 			echo "Couldn't find a proper sql file to import"
 		fi
 		#content
-		if [ -f $official_content ]; then
-			import_database $1 $2 $3 $4 "$5_$branch" $official_content
-		elif [ -f $(pwd)"/$5_${branch}_content.sql" ]; then
-			read -p "There is not official database content, do you want to import experimental ? - its not safe! (y/n)" yn
-			case $yn in 
-				y|Y )
-				import_database $1 $2 $3 $4 "$5_$branch" $content
-				;;
-				n|N )
-				continue
-				;;
-			esac
+		if [ -f $content ]; then
+			import_database $1 $2 $3 $4 "$5_$branch" $content
 		else
 			echo "Couldn't find a proper sql file to import"
 		fi
